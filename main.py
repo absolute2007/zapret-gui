@@ -60,6 +60,57 @@ $Shortcut.Save()
         return True
     except: return False
 
+def check_and_self_install():
+    """Проверяет установлено ли приложение, если нет - устанавливает себя"""
+    if not getattr(sys, 'frozen', False):
+        return  # Не exe, разработка
+    
+    current_exe = Path(sys.executable)
+    app_dir = get_app_dir()
+    installed_exe = app_dir / "ZapretGUI.exe"
+    
+    # Если уже запущено из правильного места - ничего не делаем
+    if current_exe.parent == app_dir:
+        return
+    
+    # Спрашиваем пользователя
+    import tkinter.messagebox as msgbox
+    import tkinter as tk
+    root = tk.Tk()
+    root.withdraw()
+    
+    result = msgbox.askyesno(
+        "Установка Zapret GUI",
+        f"Установить Zapret GUI в:\n{app_dir}\n\nИ создать ярлык на рабочем столе?"
+    )
+    
+    if not result:
+        root.destroy()
+        return
+    
+    try:
+        # Создаём директории
+        get_base_install_dir().mkdir(parents=True, exist_ok=True)
+        app_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Копируем exe
+        shutil.copy2(current_exe, installed_exe)
+        
+        # Создаём ярлык
+        create_desktop_shortcut(installed_exe)
+        
+        msgbox.showinfo("Готово!", f"Приложение установлено!\n\nЯрлык создан на рабочем столе.")
+        
+        # Запускаем установленную версию и выходим
+        subprocess.Popen([str(installed_exe)])
+        root.destroy()
+        os._exit(0)
+        
+    except Exception as e:
+        msgbox.showerror("Ошибка", f"Не удалось установить: {e}")
+        root.destroy()
+
+
 def is_admin() -> bool:
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
@@ -1229,5 +1280,6 @@ class ZapretGUI(ctk.CTk):
         self.status_lbl.configure(text=text)
 
 if __name__ == "__main__":
+    check_and_self_install()  # Самоустановка при первом запуске
     app = ZapretGUI()
     app.mainloop()

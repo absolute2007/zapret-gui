@@ -2,6 +2,8 @@
 
 Графический интерфейс для утилиты [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube).
 
+**Автор:** [absolute2007](https://github.com/absolute2007)
+
 ## Возможности
 
 - **Управление списками** — редактирование list-general.txt и других файлов
@@ -47,4 +49,3 @@ build.bat
 ## Лицензия
 
 MIT
-
