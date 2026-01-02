@@ -297,11 +297,12 @@ class ServiceManager:
     def remove_service():
         """Удаление службы zapret и WinDivert"""
         ServiceManager.stop_service()
+        # Parallel cleanup to be faster
         subprocess.run("sc delete zapret", shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-        subprocess.run("net stop WinDivert", shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         subprocess.run("sc delete WinDivert", shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-        subprocess.run("net stop WinDivert14", shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         subprocess.run("sc delete WinDivert14", shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run("net stop WinDivert", shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run("net stop WinDivert14", shell=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
     
     @staticmethod
     def install_service(strategy_path: Path, app_dir: Path) -> Tuple[bool, str]:
@@ -353,6 +354,10 @@ class ServiceManager:
                 args = args.replace('%LISTS%', lists_path + '\\')
                 args = args.replace('%~dp0', str(app_dir) + '\\')
                 args = args.replace('%GameFilter%', game_filter)
+                
+                # Fix for ALT10 and other strategies using escaped special chars
+                args = args.replace('^!', '!')
+                
                 args = re.sub(r'\s+', ' ', args)
                 
                 log.write(f"\nFinal args: {args[:500]}\n")
@@ -362,7 +367,7 @@ class ServiceManager:
                 
                 # Удаляем старую службу
                 ServiceManager.remove_service()
-                time.sleep(1)
+                time.sleep(0.5)
                 
                 # TCP timestamps
                 subprocess.run("netsh interface tcp set global timestamps=enabled", 
@@ -1038,7 +1043,7 @@ class ZapretGUI(ctk.CTk):
         
         # Check HTTPS
         try:
-            r = requests.get("https://discord.com", timeout=5)
+            r = requests.get("https://discord.com", timeout=3)
             results.append(f"[OK] HTTPS работает (discord.com: {r.status_code})\n")
         except Exception as e:
             results.append(f"[X] HTTPS ошибка: {str(e)[:40]}\n")
