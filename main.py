@@ -16,7 +16,28 @@ import ctypes
 import re
 import webbrowser
 import json
+import logging
+import traceback
 from pathlib import Path
+
+# Setup simple file logging for startup debugging
+# log_file = Path(__file__).parent / "startup.log"
+# logging.basicConfig(
+#     filename=str(log_file),
+#     level=logging.DEBUG,
+#     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+# )
+
+# def handle_exception(exc_type, exc_value, exc_traceback):
+#     if issubclass(exc_type, KeyboardInterrupt):
+#         sys.__excepthook__(exc_type, exc_value, exc_traceback)
+#         return
+#     logging.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+# sys.excepthook = handle_exception
+
+# logging.info("ZapretGUI starting...")
+
 from typing import Optional, Tuple, Dict
 from packaging import version
 
@@ -45,7 +66,7 @@ CONFIG_FILE = "zapret_gui_config.json"
 
 
 def get_base_install_dir() -> Path:
-    return Path(os.environ.get('LOCALAPPDATA', Path.home())) / INSTALL_DIR_NAME
+    return Path.home() / INSTALL_DIR_NAME
 
 def get_zapret_dir() -> Path:
     return get_base_install_dir() / "zapret"
@@ -134,32 +155,56 @@ class Installer:
             pass
         return None
 
-    def check_updates(self) -> Tuple[bool, str]:
+    def get_latest_tag(self) -> Optional[str]:
+        headers = {"User-Agent": APP_NAME}
+        # Try API first
         try:
-            response = requests.get(GITHUB_API_URL, timeout=5)
-            response.raise_for_status()
-            data = response.json()
-            latest = data["tag_name"]
-            local = self.get_local_version()
-            if not local:
-                return True, latest
+            response = requests.get(GITHUB_API_URL, headers=headers, timeout=5)
+            if response.status_code == 200:
+                tag = response.json()["tag_name"]
+                print(f"API found tag: {tag}")
+                return tag
+        except Exception as e:
+            print(f"API check failed: {e}")
+            pass
+            
+        # Fallback to web (follows redirects)
+        try:
+            # Added headers because GitHub blocks requests without User-Agent
+            response = requests.get(GITHUB_RELEASES_URL, headers=headers, timeout=10)
+            # URL should be .../releases/tag/v1.9.2
+            if "/releases/tag/" in response.url:
+                tag = response.url.split("/")[-1]
+                print(f"Web found tag: {tag}")
+                return tag
+        except Exception as e:
+            print(f"Web check failed: {e}")
+            pass
+            
+        return None
+
+    def check_updates(self) -> Tuple[bool, str]:
+        latest = self.get_latest_tag()
+        if not latest:
+            return False, ""
+            
+        local = self.get_local_version()
+        if not local:
+            return True, latest
+            
+        try:
             return version.parse(latest.lstrip('v')) > version.parse(local.lstrip('v')), latest
         except:
-            return False, ""
+            return True, latest
 
-    def _get_release_zip_url(self) -> Optional[str]:
-        try:
-            # Add headers to avoid 403 Forbidden from GitHub API
-            headers = {"User-Agent": APP_NAME}
-            response = requests.get(GITHUB_API_URL, headers=headers, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            
-            # Prefer zipball of the release source code
-            return data.get("zipball_url")
-        except Exception as e:
-            print(f"Error getting release URL: {e}")
-            return None
+    def _get_release_urls(self, tag: str) -> list[str]:
+        """Return list of possible download URLs in order of preference"""
+        # 1. Binary release (zip) - matches user's rar pattern but zip
+        # 2. Source code (zip) - fallback
+        return [
+            f"https://github.com/{GITHUB_REPO}/releases/download/{tag}/zapret-discord-youtube-{tag}.zip",
+            f"https://github.com/{GITHUB_REPO}/archive/refs/tags/{tag}.zip"
+        ]
 
     def download_and_install(self, progress_callback, reset: bool = False) -> bool:
         try:
@@ -179,20 +224,37 @@ class Installer:
                     print(f"Error cleaning dir: {e}")
 
             progress_callback("Получение информации о релизе...", 20)
-            zip_url = self._get_release_zip_url()
-            if not zip_url:
-                progress_callback("Ошибка: Не удалось найти релиз", 0)
+            tag = self.get_latest_tag()
+            if not tag:
+                progress_callback("Ошибка: Не удалось найти релиз (проверьте интернет)", 0)
                 return False
 
-            progress_callback("Скачивание последней версии...", 30)
+            progress_callback(f"Скачивание версии {tag}...", 30)
             headers = {"User-Agent": APP_NAME}
-            r = requests.get(zip_url, headers=headers, stream=True, timeout=120)
-            r.raise_for_status()
-
+            
+            # Try URLs in order
+            urls = self._get_release_urls(tag)
+            success = False
             temp_zip = self.base_dir / "zapret_download.zip"
-            with open(temp_zip, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+
+            for url in urls:
+                try:
+                    print(f"Trying url: {url}")
+                    r = requests.get(url, headers=headers, stream=True, timeout=120)
+                    if r.status_code == 200:
+                        with open(temp_zip, "wb") as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        success = True
+                        break
+                    else:
+                        print(f"URL failed with status {r.status_code}: {url}")
+                except Exception as e:
+                    print(f"URL download error: {e}")
+            
+            if not success:
+               progress_callback("Ошибка: Не удалось скачать файл релиза (404/Connection Error)", 0)
+               return False
 
             progress_callback("Распаковка...", 60)
             extract_dir = self.base_dir / "temp_extract"
@@ -200,8 +262,12 @@ class Installer:
                 shutil.rmtree(extract_dir)
             extract_dir.mkdir()
 
-            with zipfile.ZipFile(temp_zip, 'r') as z:
-                z.extractall(extract_dir)
+            try:
+                with zipfile.ZipFile(temp_zip, 'r') as z:
+                    z.extractall(extract_dir)
+            except zipfile.BadZipFile:
+                 progress_callback("Ошибка: Скачанный файл поврежден или не является zip архивом", 0)
+                 return False
 
             contents = list(extract_dir.iterdir())
             source_dir = contents[0] if len(contents) == 1 and contents[0].is_dir() else extract_dir
@@ -401,11 +467,24 @@ class StatusWorker(QThread):
             try:
                 if not version or version == "неизвестна":
                     import requests
-                    headers = {"User-Agent": "ZapretGUI"}
-                    resp = requests.get("https://api.github.com/repos/Flowseal/zapret-discord-youtube/releases/latest", headers=headers, timeout=3)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        version = data.get("tag_name", "неизвестна")
+                    # Try API first
+                    try:
+                        headers = {"User-Agent": "ZapretGUI"}
+                        resp = requests.get("https://api.github.com/repos/Flowseal/zapret-discord-youtube/releases/latest", headers=headers, timeout=3)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            version = data.get("tag_name", "неизвестна")
+                    except:
+                        pass
+                        
+                    # Fallback to web if API failed
+                    if not version or version == "неизвестна":
+                        try:
+                            resp = requests.get("https://github.com/Flowseal/zapret-discord-youtube/releases/latest", timeout=5)
+                            if "/releases/tag/" in resp.url:
+                                version = resp.url.split("/")[-1]
+                        except:
+                            pass
             except:
                 pass
 
@@ -1585,10 +1664,80 @@ def main():
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
+    # Self-install check
+    if getattr(sys, 'frozen', False):
+        try:
+            check_and_install_self()
+        except Exception as e:
+            print(f"Self-install error: {e}")
+
     window = ZapretWindow()
     window.show()
-
     sys.exit(app.exec())
+
+def create_shortcut(target_path: Path):
+    """Create shortcut using PowerShell to avoid win32com dependency"""
+    try:
+        desktop = Path.home() / "Desktop"
+        shortcut_path = desktop / "Zapret GUI.lnk"
+        
+        # PowerShell script to create shortcut
+        ps_script = f'''
+        $WshShell = New-Object -comObject WScript.Shell
+        $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
+        $Shortcut.TargetPath = "{target_path}"
+        $Shortcut.WorkingDirectory = "{target_path.parent}"
+        $Shortcut.IconLocation = "{target_path}"
+        $Shortcut.Save()
+        '''
+        
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], 
+                      creationflags=subprocess.CREATE_NO_WINDOW, capture_output=True)
+        return True
+    except:
+        return False
+
+def check_and_install_self():
+    """Check if running from install dir, if not - offer install"""
+    current_exe = Path(sys.executable).resolve()
+    install_dir = get_app_dir()
+    target_exe = install_dir / "ZapretGUI.exe"
+    
+    # Check if we are already running from the correct location
+    # Use string comparison for safety with path normalization
+    if str(current_exe).lower() == str(target_exe.resolve()).lower():
+        return
+
+    # Prompt user
+    msg = QMessageBox()
+    msg.setWindowTitle("Установка Zapret GUI")
+    msg.setText("Установить Zapret GUI?")
+    msg.setInformativeText(f"Приложение будет скопировано в:\n{install_dir}\n\nБудет создан ярлык на рабочем столе.")
+    msg.setIcon(QMessageBox.Icon.Question)
+    msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+    
+    if msg.exec() == QMessageBox.StandardButton.Yes:
+        try:
+            # Create directories
+            install_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy executable
+            shutil.copy2(current_exe, target_exe)
+            
+            # Create shortcut
+            create_shortcut(target_exe)
+            
+            # Notify
+            QMessageBox.information(None, "Успешно", "Приложение установлено! Запускаем установленную версию...")
+            
+            # Launch installed version
+            subprocess.Popen([str(target_exe)], cwd=str(install_dir))
+            sys.exit(0)
+            
+        except Exception as e:
+            QMessageBox.critical(None, "Ошибка установки", f"Не удалось установить: {str(e)}")
+
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ a = Analysis(
         'PyQt6.QtGui',
         'PyQt6.QtWidgets',
         'qfluentwidgets',
+        'requests',
+        'packaging',
     ],
     hookspath=[],
     hooksconfig={},
@@ -24,6 +26,23 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
+    [],
+    exclude_binaries=True,
+    name='ZapretGUI',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['app.ico'],
+)
+coll = COLLECT(
+    exe,
     a.binaries,
     a.datas,
     [],
@@ -40,5 +59,4 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['app.ico'],
 )
