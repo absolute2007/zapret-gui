@@ -1117,9 +1117,35 @@ class OptionsPage(QWidget):
         threading.Thread(target=do_update, daemon=True).start()
 
 
+class TestWorker(QThread):
+    result = pyqtSignal(str)
+    
+    def __init__(self, domain):
+        super().__init__()
+        self.domain = domain
+        
+    def run(self):
+        results = []
+        try:
+            t = time.time()
+            ip = socket.gethostbyname(self.domain)
+            results.append(f"✓ DNS: {ip} ({int((time.time()-t)*1000)}ms)")
+        except Exception as e:
+            results.append(f"✗ DNS: {e}")
+
+        try:
+            t = time.time()
+            r = requests.get(f"https://{self.domain}", timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            results.append(f"✓ HTTPS: {r.status_code} ({int((time.time()-t)*1000)}ms)")
+        except Exception as e:
+            results.append(f"✗ HTTPS: {e}")
+            
+        self.result.emit("\n".join(results))
+
 class TestPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.worker = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -1154,27 +1180,18 @@ class TestPage(QWidget):
 
         self.results.clear()
         self.results.append(f"Проверка {domain}...\n")
-
-        def do_test():
-            results = []
-            try:
-                t = time.time()
-                ip = socket.gethostbyname(domain)
-                results.append(f"✓ DNS: {ip} ({int((time.time()-t)*1000)}ms)")
-            except Exception as e:
-                results.append(f"✗ DNS: {e}")
-
-            try:
-                t = time.time()
-                r = requests.get(f"https://{domain}", timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-                results.append(f"✓ HTTPS: {r.status_code} ({int((time.time()-t)*1000)}ms)")
-            except Exception as e:
-                results.append(f"✗ HTTPS: {e}")
-
-            QTimer.singleShot(0, lambda: self.results.append("\n".join(results)))
-
-        import threading
-        threading.Thread(target=do_test, daemon=True).start()
+        self.test_btn.setEnabled(False)
+        
+        self.worker = TestWorker(domain)
+        self.worker.result.connect(self._on_result)
+        self.worker.finished.connect(self._on_finished)
+        self.worker.start()
+        
+    def _on_result(self, text):
+        self.results.append(text)
+        
+    def _on_finished(self):
+        self.test_btn.setEnabled(True)
 
 
 class StatusPage(QWidget):
