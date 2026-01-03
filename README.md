@@ -1,4 +1,4 @@
-# Zapret GUI v1
+# Zapret GUI v2
 
 Графический интерфейс для утилиты [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube).
 
