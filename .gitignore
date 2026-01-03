@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+release/
+*.egg-info/
+*.egg
+
+# PyInstaller
+# Generated files
+# app.ico (Needed for build)
+
+# Installer logs
+pip-log.txt
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+update.zip
+temp_extract/
+*.log
+install_debug.log
+zapret_download.zip
