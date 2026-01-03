@@ -5,6 +5,7 @@ import shutil
 import zipfile
 import subprocess
 import traceback
+import time
 from pathlib import Path
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLabel, 
                            QPushButton, QProgressBar, QMessageBox, QFrame, QCheckBox)
@@ -39,9 +40,18 @@ class InstallThread(QThread):
             # Kill existing process if running
             subprocess.run("taskkill /F /IM ZapretGUI.exe", shell=True, 
                          creationflags=subprocess.CREATE_NO_WINDOW, capture_output=True)
+            time.sleep(1)  # Wait for process to fully terminate
             
+            # Remove existing app dir with retry
             if app_dir.exists():
-                shutil.rmtree(app_dir)
+                for attempt in range(3):
+                    try:
+                        shutil.rmtree(app_dir)
+                        break
+                    except PermissionError:
+                        time.sleep(1)
+                        if attempt == 2:
+                            raise
             app_dir.mkdir(parents=True, exist_ok=True)
             
             # Create zapret dir
@@ -93,16 +103,27 @@ def create_shortcut(target_path: Path):
         desktop = Path.home() / "Desktop"
         shortcut_path = desktop / "Zapret GUI.lnk"
         
+        # Convert paths to strings with proper escaping for PowerShell
+        shortcut_str = str(shortcut_path).replace("'", "''")
+        target_str = str(target_path).replace("'", "''")
+        workdir_str = str(target_path.parent).replace("'", "''")
+        
         ps_script = f'''
-        $WshShell = New-Object -comObject WScript.Shell
-        $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
-        $Shortcut.TargetPath = "{target_path}"
-        $Shortcut.WorkingDirectory = "{target_path.parent}"
-        $Shortcut.IconLocation = "{target_path}"
-        $Shortcut.Save()
-        '''
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], 
-                      creationflags=subprocess.CREATE_NO_WINDOW, capture_output=True)
+$WshShell = New-Object -ComObject WScript.Shell
+$Shortcut = $WshShell.CreateShortcut('{shortcut_str}')
+$Shortcut.TargetPath = '{target_str}'
+$Shortcut.WorkingDirectory = '{workdir_str}'
+$Shortcut.IconLocation = '{target_str},0'
+$Shortcut.Save()
+'''
+        # Use full path to powershell to work in PyInstaller bundle
+        ps_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        result = subprocess.run(
+            [ps_path, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            capture_output=True,
+            text=True
+        )
     except:
         pass
 
@@ -193,28 +214,31 @@ class InstallerWindow(QWidget):
     def on_finished(self, success, result):
         if success:
             self.status_label.setText("Установка завершена!")
-            self.install_btn.setText("Запустить и закрыть")
-            self.install_btn.setEnabled(True)
             self.target_exe = result
-            self.install_btn.clicked.disconnect()
-            self.install_btn.clicked.connect(self.launch_and_exit)
             
-            # Auto-launch timer
-            self.timer = QTimer()
-            self.timer.timeout.connect(self.launch_and_exit)
-            self.timer.start(3000)
-            self.install_btn.setText("Запуск через 3с...")
+            # Hide shortcut checkbox and show launch checkbox
+            self.shortcut_checkbox.hide()
+            self.launch_checkbox = QCheckBox("Запустить Zapret GUI")
+            self.launch_checkbox.setChecked(True)
+            self.launch_checkbox.setStyleSheet("color: #ccc; font-size: 13px;")
+            self.layout().insertWidget(self.layout().indexOf(self.install_btn), self.launch_checkbox)
+            
+            self.install_btn.setText("Готово")
+            self.install_btn.setEnabled(True)
+            self.install_btn.clicked.disconnect()
+            self.install_btn.clicked.connect(self.finish_install)
         else:
             self.status_label.setText(f"Ошибка: {result}")
             self.install_btn.setEnabled(True)
             self.install_btn.setText("Повторить")
             QMessageBox.critical(self, "Ошибка", f"Не удалось установить:\n{result}")
 
-    def launch_and_exit(self):
-        try:
-            subprocess.Popen([self.target_exe], cwd=str(Path(self.target_exe).parent))
-        except:
-            pass
+    def finish_install(self):
+        if hasattr(self, 'launch_checkbox') and self.launch_checkbox.isChecked():
+            try:
+                subprocess.Popen([self.target_exe], cwd=str(Path(self.target_exe).parent))
+            except:
+                pass
         self.close()
 
 if __name__ == "__main__":

@@ -665,7 +665,7 @@ class StrategiesPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        # Status card at top
+        # Status card
         status_card = CardWidget()
         status_layout = QHBoxLayout(status_card)
         status_layout.setContentsMargins(20, 15, 20, 15)
@@ -677,7 +677,7 @@ class StrategiesPage(QWidget):
         status_layout.addLayout(status_left)
         status_layout.addStretch()
 
-        # Status indicator (colored dot)
+        # Status indicator
         self.status_indicator = BodyLabel("●")
         self.status_indicator.setStyleSheet("font-size: 24px; color: gray;")
         status_layout.addWidget(self.status_indicator)
@@ -689,25 +689,29 @@ class StrategiesPage(QWidget):
 
         layout.addWidget(status_card)
 
-        # Hint
-        hint = BodyLabel("Выберите стратегию для запуска обхода DPI:")
-        hint.setStyleSheet("color: #888; font-size: 13px;")
-        layout.addWidget(hint)
+        # Strategy selection card
+        strat_card = CardWidget()
+        strat_layout = QVBoxLayout(strat_card)
+        strat_layout.setContentsMargins(20, 15, 20, 15)
+        strat_layout.setSpacing(12)
 
-        # Strategies container with scroll
-        from qfluentwidgets import ScrollArea
-        scroll = ScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("ScrollArea { border: none; background: transparent; }")
+        strat_layout.addWidget(SubtitleLabel("Выберите стратегию"))
+        
+        # Dropdown
+        self.strat_combo = ComboBox()
+        self.strat_combo.setMinimumWidth(300)
+        strat_layout.addWidget(self.strat_combo)
 
-        self.strat_container = QWidget()
-        self.strat_layout = QVBoxLayout(self.strat_container)
-        self.strat_layout.setSpacing(8)
-        self.strat_layout.setContentsMargins(0, 0, 0, 0)
-        self.strat_layout.addStretch()
+        # Run button
+        self.run_btn = PrimaryPushButton("▶ Запустить")
+        self.run_btn.setMinimumHeight(40)
+        self.run_btn.clicked.connect(self._run_selected_strategy)
+        strat_layout.addWidget(self.run_btn)
 
-        scroll.setWidget(self.strat_container)
-        layout.addWidget(scroll)
+        layout.addWidget(strat_card)
+
+        layout.addStretch()
+
 
     def set_zapret_dir(self, path):
         self.zapret_dir = path
@@ -732,46 +736,25 @@ class StrategiesPage(QWidget):
 
     def update_strategies(self, strategies):
         self.strategies = strategies
-
-        # Clear old widgets
-        while self.strat_layout.count() > 1:  # Keep stretch
-            item = self.strat_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
+        self.strat_combo.clear()
+        
         if not strategies:
-            no_strat = BodyLabel("Стратегии не найдены. Установите Zapret.")
-            no_strat.setStyleSheet("color: #888; padding: 20px;")
-            self.strat_layout.insertWidget(0, no_strat)
+            self.strat_combo.addItem("Стратегии не найдены")
+            self.run_btn.setEnabled(False)
             return
+        
+        self.run_btn.setEnabled(True)
+        for name in strategies:
+            self.strat_combo.addItem(name.replace(".bat", ""), name)
 
-        # Add strategy cards with colors
-        colors = ["#0078d4", "#107c10", "#5c2d91", "#e81123", "#ff8c00", "#00b7c3"]
-
-        for i, name in enumerate(strategies):
-            card = CardWidget()
-            card_layout = QHBoxLayout(card)
-            card_layout.setContentsMargins(15, 15, 15, 15)
-
-            # Color indicator
-            color = colors[i % len(colors)]
-            color_dot = BodyLabel("●")
-            color_dot.setStyleSheet(f"font-size: 16px; color: {color};")
-            card_layout.addWidget(color_dot)
-
-            # Strategy name
-            label = SubtitleLabel(name.replace(".bat", ""))
-            label.setStyleSheet("font-size: 15px;")
-            card_layout.addWidget(label)
-            card_layout.addStretch()
-
-            # Run button
-            btn = PrimaryPushButton("▶ Запустить")
-            btn.setStyleSheet(f"background-color: {color};")
-            btn.clicked.connect(lambda checked, n=name: self._run_strategy(n))
-            card_layout.addWidget(btn)
-
-            self.strat_layout.insertWidget(i, card)
+    def _run_selected_strategy(self):
+        if not self.strategies:
+            return
+        idx = self.strat_combo.currentIndex()
+        if idx < 0 or idx >= len(self.strategies):
+            return
+        name = self.strategies[idx]
+        self._run_strategy(name)
 
     def _run_strategy(self, name):
         if not self.zapret_dir:
@@ -1196,6 +1179,7 @@ class TestPage(QWidget):
 
 class StatusPage(QWidget):
     refresh_requested = pyqtSignal()
+    update_zapret_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1322,6 +1306,21 @@ class StatusPage(QWidget):
 
         layout.addStretch()
 
+        # Check updates button at bottom
+        update_card = CardWidget()
+        update_layout = QHBoxLayout(update_card)
+        update_layout.setContentsMargins(20, 15, 20, 15)
+        
+        update_layout.addWidget(BodyLabel("Проверить наличие обновлений Zapret"))
+        update_layout.addStretch()
+        
+        self.update_btn = PushButton("🔄 Проверить обновления")
+        self.update_btn.clicked.connect(lambda: self.update_zapret_requested.emit())
+        update_layout.addWidget(self.update_btn)
+        
+        layout.addWidget(update_card)
+
+
     def set_version(self, version: str):
         self.version_label.setText(f"v{version}")
 
@@ -1369,6 +1368,10 @@ class SettingsPage(QWidget):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
+        self.base_dir = get_base_install_dir()
+        self.app_dir = get_app_dir()
+        self.backup_dir = self.app_dir / "lists_backup"
+        self.lists_dir = get_zapret_dir() / "lists"
         self._setup_ui()
 
     def _setup_ui(self):
@@ -1405,6 +1408,42 @@ class SettingsPage(QWidget):
 
         layout.addWidget(upd_card)
 
+        # Open folder
+        folder_card = CardWidget()
+        folder_layout = QVBoxLayout(folder_card)
+        folder_layout.setContentsMargins(20, 15, 20, 15)
+
+        folder_layout.addWidget(SubtitleLabel("Папка приложения"))
+        folder_layout.addWidget(BodyLabel(str(self.base_dir)))
+
+        folder_btn = PushButton("📂 Открыть папку")
+        folder_btn.clicked.connect(self._open_folder)
+        folder_layout.addWidget(folder_btn)
+
+        layout.addWidget(folder_card)
+
+        # Backup lists
+        backup_card = CardWidget()
+        backup_layout = QVBoxLayout(backup_card)
+        backup_layout.setContentsMargins(20, 15, 20, 15)
+
+        backup_layout.addWidget(SubtitleLabel("Резервная копия списков"))
+        backup_layout.addWidget(BodyLabel("Сохраняет списки в отдельную папку (app/lists_backup)"))
+
+        backup_row = QHBoxLayout()
+        
+        backup_btn = PushButton("💾 Сохранить списки")
+        backup_btn.clicked.connect(self._backup_lists)
+        backup_row.addWidget(backup_btn)
+        
+        restore_btn = PushButton("📥 Восстановить списки")
+        restore_btn.clicked.connect(self._restore_lists)
+        backup_row.addWidget(restore_btn)
+        
+        backup_layout.addLayout(backup_row)
+
+        layout.addWidget(backup_card)
+
         # Reset
         reset_card = CardWidget()
         reset_layout = QVBoxLayout(reset_card)
@@ -1427,6 +1466,39 @@ class SettingsPage(QWidget):
 
     def _on_upd_change(self, checked):
         self.config.set("check_updates", checked)
+
+    def _open_folder(self):
+        os.startfile(str(self.base_dir))
+
+    def _backup_lists(self):
+        try:
+            if not self.lists_dir.exists():
+                InfoBar.warning("Предупреждение", "Папка lists не найдена", parent=self)
+                return
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            count = 0
+            for f in self.lists_dir.glob("*.txt"):
+                shutil.copy(f, self.backup_dir / f.name)
+                count += 1
+            InfoBar.success("Успех", f"Сохранено {count} файлов в {self.backup_dir}", parent=self)
+        except Exception as e:
+            InfoBar.error("Ошибка", str(e), parent=self)
+
+    def _restore_lists(self):
+        try:
+            if not self.backup_dir.exists():
+                InfoBar.warning("Предупреждение", "Папка резервных копий не найдена", parent=self)
+                return
+            if not self.lists_dir.exists():
+                InfoBar.warning("Предупреждение", "Папка lists не найдена", parent=self)
+                return
+            count = 0
+            for f in self.backup_dir.glob("*.txt"):
+                shutil.copy(f, self.lists_dir / f.name)
+                count += 1
+            InfoBar.success("Успех", f"Восстановлено {count} файлов", parent=self)
+        except Exception as e:
+            InfoBar.error("Ошибка", str(e), parent=self)
 
     def _reset(self):
         reply = QMessageBox.question(self, "Сброс", "Удалить все файлы Zapret и скачать заново?")
@@ -1540,6 +1612,7 @@ class ZapretWindow(FluentWindow):
 
         self.status_page = StatusPage()
         self.status_page.refresh_requested.connect(self._refresh_data)
+        self.status_page.update_zapret_requested.connect(self._check_updates_manual)
 
         self.settings_page = SettingsPage(self.config)
         self.settings_page.theme_changed.connect(self._on_theme_change)
@@ -1558,7 +1631,7 @@ class ZapretWindow(FluentWindow):
         self.addSubInterface(self.lists_page, FluentIcon.DOCUMENT, "Списки")
         self.addSubInterface(self.strategies_page, FluentIcon.PLAY, "Стратегии")
         self.addSubInterface(self.autorun_page, FluentIcon.POWER_BUTTON, "Автозапуск")
-        self.addSubInterface(self.options_page, FluentIcon.SETTING, "Опции")
+        self.addSubInterface(self.options_page, FluentIcon.APPLICATION, "Опции")
         self.addSubInterface(self.test_page, FluentIcon.WIFI, "Тест")
         self.addSubInterface(self.status_page, FluentIcon.INFO, "Статус")
 
@@ -1622,6 +1695,28 @@ class ZapretWindow(FluentWindow):
                 ))
         except:
             pass
+
+    def _check_updates_manual(self):
+        try:
+            has_upd, ver = self.installer.check_updates()
+            if has_upd:
+                reply = QMessageBox.question(
+                    self, "Обновление доступно",
+                    f"Доступна новая версия Zapret: {ver}\n\nОткрыть страницу загрузки?"
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    webbrowser.open(GITHUB_RELEASES_URL)
+            else:
+                InfoBar.success(
+                    "Обновлений нет",
+                    "У вас установлена последняя версия Zapret",
+                    parent=self,
+                    duration=3000,
+                    position=InfoBarPosition.TOP_RIGHT
+                )
+        except Exception as e:
+            InfoBar.error("Ошибка", f"Не удалось проверить обновления: {e}", parent=self)
+
 def run_as_admin():
     """Restart the application with admin rights if not already admin."""
     if is_admin():
