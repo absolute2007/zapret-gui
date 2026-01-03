@@ -9,18 +9,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLabel, 
                            QPushButton, QProgressBar, QMessageBox, QFrame)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-import logging
-import datetime
 
-# Setup logging
-log_file = Path.home() / "Desktop" / "zapret_install_log.txt"
-logging.basicConfig(
-    filename=str(log_file),
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-
-logging.info("Installer starting...")
 
 # Constants
 INSTALL_DIR_NAME = "zapret-gui"
