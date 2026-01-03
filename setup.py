@@ -28,28 +28,21 @@ class InstallThread(QThread):
     def run(self):
         try:
             # 1. Prepare dirs
-            logging.info("Preparing directories...")
             self.progress.emit(10, "Подготовка директорий...")
             base_dir = get_base_install_dir()
             app_dir = get_app_dir()
-            
-            logging.info(f"Base dir: {base_dir}")
-            logging.info(f"App dir: {app_dir}")
 
             # Kill existing process if running
-            logging.info("Killing existing processes...")
             subprocess.run("taskkill /F /IM ZapretGUI.exe", shell=True, 
                          creationflags=subprocess.CREATE_NO_WINDOW, capture_output=True)
             
             if app_dir.exists():
-                logging.info("Removing existing app dir...")
                 shutil.rmtree(app_dir)
             app_dir.mkdir(parents=True, exist_ok=True)
             
             # Create zapret dir
             zapret_dir = base_dir / "zapret"
             zapret_dir.mkdir(parents=True, exist_ok=True)
-            logging.info(f"Zapret dir created: {zapret_dir}")
 
             # 2. Extract payload
             self.progress.emit(30, "Распаковка файлов...")
@@ -58,27 +51,18 @@ class InstallThread(QThread):
             # In onefile mode, resources are in sys._MEIPASS
             if hasattr(sys, '_MEIPASS'):
                 zip_path = Path(sys._MEIPASS) / "app.zip"
-                logging.info(f"Found _MEIPASS: {sys._MEIPASS}")
             else:
                 zip_path = Path("app.zip") # Dev mode
-                logging.info("Running in dev mode (no _MEIPASS)")
-                
-            logging.info(f"Zip path: {zip_path}")
                 
             if not zip_path.exists():
-                logging.error("app.zip not found!")
                 raise FileNotFoundError("app.zip not found in installer")
 
-            logging.info("Starting extraction...")
             with zipfile.ZipFile(zip_path, 'r') as z:
                 # Get total size for progress
                 total_size = sum(info.file_size for info in z.infolist())
                 extracted_size = 0
                 
-                logging.info(f"Total size to extract: {total_size}")
-                
                 for info in z.infolist():
-                    logging.debug(f"Extracting {info.filename}")
                     z.extract(info, app_dir)
                     extracted_size += info.file_size
                     # Progress from 30 to 90
@@ -94,8 +78,6 @@ class InstallThread(QThread):
             self.finished.emit(True, str(target_exe))
             
         except Exception as e:
-            logging.error(f"Installation failed: {e}")
-            logging.error(traceback.format_exc())
             traceback.print_exc()
             self.finished.emit(False, str(e))
 
