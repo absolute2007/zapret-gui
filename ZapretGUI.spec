@@ -76,7 +76,6 @@ a = Analysis(
         'PyQt6.QtSerialPort',
         'PyQt6.QtSql',
         'PyQt6.QtTest',
-        'PyQt6.QtXml',
     ],
     noarchive=False,
     optimize=0,
