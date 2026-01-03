@@ -7,7 +7,7 @@ import subprocess
 import traceback
 from pathlib import Path
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLabel, 
-                           QPushButton, QProgressBar, QMessageBox, QFrame)
+                           QPushButton, QProgressBar, QMessageBox, QFrame, QCheckBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 
@@ -24,6 +24,10 @@ def get_app_dir() -> Path:
 class InstallThread(QThread):
     progress = pyqtSignal(int, str)
     finished = pyqtSignal(bool, str)
+    
+    def __init__(self, create_shortcut=True):
+        super().__init__()
+        self.create_shortcut_flag = create_shortcut
 
     def run(self):
         try:
@@ -69,10 +73,13 @@ class InstallThread(QThread):
                     pct = 30 + int((extracted_size / total_size) * 60)
                     self.progress.emit(pct, f"Распаковка: {info.filename}")
 
-            # 3. Create Shortcut
-            self.progress.emit(90, "Создание ярлыка...")
+            # 3. Create Shortcut (if enabled)
             target_exe = app_dir / "ZapretGUI.exe"
-            create_shortcut(target_exe)
+            if self.create_shortcut_flag:
+                self.progress.emit(90, "Создание ярлыка...")
+                create_shortcut(target_exe)
+            else:
+                self.progress.emit(90, "Завершение...")
             
             self.progress.emit(100, "Готово!")
             self.finished.emit(True, str(target_exe))
@@ -157,6 +164,12 @@ class InstallerWindow(QWidget):
 
         layout.addStretch()
 
+        # Checkbox for desktop shortcut
+        self.shortcut_checkbox = QCheckBox("Создать ярлык на рабочем столе")
+        self.shortcut_checkbox.setChecked(True)
+        self.shortcut_checkbox.setStyleSheet("color: #ccc; font-size: 13px;")
+        layout.addWidget(self.shortcut_checkbox)
+
         # Button
         self.install_btn = QPushButton("Установить")
         self.install_btn.setMinimumHeight(40)
@@ -166,8 +179,9 @@ class InstallerWindow(QWidget):
     def start_install(self):
         self.install_btn.setEnabled(False)
         self.install_btn.setText("Установка...")
+        self.shortcut_checkbox.setEnabled(False)
         
-        self.worker = InstallThread()
+        self.worker = InstallThread(create_shortcut=self.shortcut_checkbox.isChecked())
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.on_finished)
         self.worker.start()
